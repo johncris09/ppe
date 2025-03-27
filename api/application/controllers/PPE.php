@@ -176,7 +176,10 @@ class PPE extends RestController
 		$requestData = $this->input->get();
 		$resultData = [];
 		$data = [];
-
+		$asOf  = "";
+		if (isset($requestData['date'])) {
+			$asOf = $requestData['date'];
+		}
 		if (isset($requestData['office'])) {
 			$data['office.id'] = $requestData['office'];
 		}
@@ -203,7 +206,7 @@ class PPE extends RestController
 					// Get equipment type info
 					$equipment_type = $equipmentTypeModel->find($office_equipment_type->equipment_type);
 
-			
+
 					if ($equipment_type) {
 						$equipment_type_id = $equipment_type->id; // Use a unique identifier
 
@@ -247,7 +250,136 @@ class PPE extends RestController
 			$resultData = [];
 		}
 
-		$this->response($resultData, RestController::HTTP_OK);
+		// $this->response($resultData, RestController::HTTP_OK);
+		$result = [];
+
+		foreach ($resultData as $equipment) {
+			$accountable_officer = trim(
+				($equipment['accountable_officer_title'] ?? '') . ' ' .
+				($equipment['accountable_officer_last_name'] ?? '') . ' ' .
+				($equipment['accountable_officer_middle_name'] ?? '') . ' ' .
+				($equipment['accountable_officer_first_name'] ?? '') . ' ' .
+				($equipment['accountable_officer_suffix'] ?? '') . ' ' .
+				($equipment['accountable_officer_designation'] ?? '')
+			);
+
+
+			$equipmentData = (object) [
+				"equipment_type" => $this->shortenSheetName($equipment["equipment_type"] . " " . $equipment["code"]),
+				"items" => []
+			];
+
+			$currentPageItems = [];
+			$rowCount = 0;
+
+			foreach ($equipment["items"] as $item) {
+
+				$descriptionLines = substr_count($item->description, "\n") + 1; // Count new lines
+       
+				$currentPageItems[] = (object) [
+					"article" => $item->article,
+					"description" => $item->description,
+					"date_acquired" => $item->date_acquired,
+					"stock_number" => $item->stock_number,
+					"unit" => $item->unit,
+					"value" => $item->value,
+					"balance_per_card" => $item->balance_per_card,
+					"onhand_per_count" => $item->onhand_per_count,
+					"shortage_quantity" => $item->shortage_quantity,
+					"storage_value" => $item->storage_value,
+					"end_user" => $item->end_user,
+					"remarks" => $item->remarks,
+					"encoded_by" => $item->encoded_by,
+					"equipment_type_id" => $item->equipment_type_id,
+					"equipment_type" => $item->equipment_type,
+					"code" => $item->code,
+					"accountable_officer_id" => $item->accountable_officer_id,
+					"accountable_officer_last_name" => $item->accountable_officer_last_name,
+					"accountable_officer_first_name" => $item->accountable_officer_first_name,
+					"accountable_officer_middle_name" => $item->accountable_officer_middle_name,
+					"accountable_officer_suffix" => $item->accountable_officer_suffix,
+					"assumption_date" => $item->assumption_date,
+					"designation" => $item->designation,
+					"title" => $item->title,
+					"credentials" => $item->credentials,
+					"office_id" => $item->office_id,
+					"abbr" => $item->abbr,
+					"office" => $item->office
+				];
+				$rowCount += $descriptionLines; // Increment row count by new line count
+        
+
+				// Create a new page when reaching 10 rows
+				if ($rowCount >= 20) {
+					$equipmentData->items[] = [
+						"pageInformation" => [
+							(object) [
+								"title" => "REPORT ON THE PHYSICAL COUNT OF PROPERTY, PLANT AND EQUIPMENT",
+								"annex" => "ANNEX 49",
+								"equipmentType" => $equipment["equipment_type"] . " " . $equipment["code"],
+								"typeTitle" => '(Type of Property, Plant and Equipment)',
+								"asOf" => date('F d, Y', strtotime( $asOf)) ,
+								"dateAssumption" => $equipment['accountable_officer_assumption_date'],
+								"office" => $equipment['accountable_officer_office'],
+								"accountableOfficer" => $accountable_officer,
+							]
+						],
+						"equipments" => $currentPageItems
+					];
+					$currentPageItems = [];
+					$rowCount = 0;
+				}
+			}
+
+			// Add any remaining items to the last page
+			if (!empty($currentPageItems)) {
+				$equipmentData->items[] = [
+					"pageInformation" => [
+						(object) [
+							"title" => "REPORT ON THE PHYSICAL COUNT OF PROPERTY, PLANT AND EQUIPMENT",
+							"annex" => "ANNEX 49",
+							"equipmentType" => $equipment["equipment_type"] . " " . $equipment["code"],
+							"typeTitle" => '(Type of Property, Plant and Equipment)',
+							"asOf" => date('F d, Y', strtotime( $asOf)) ,
+								"dateAssumption" => $equipment['accountable_officer_assumption_date'],
+							"office" => $equipment['accountable_officer_office'],
+							"accountableOfficer" => $accountable_officer,
+						]
+					],
+					"equipments" => $currentPageItems
+				];
+			}
+
+			$result[] = $equipmentData;
+		}
+
+		// echo json_encode($result, JSON_PRETTY_PRINT);
+
+
+		$this->response($result, RestController::HTTP_OK);
+	}
+	function shortenSheetName($name, $maxLength = 31)
+	{
+		$abbreviations = [
+			"INFORMATION" => "INFO",
+			"COMMUNICATION" => "COMM",
+			"TECHNOLOGY" => "TECH",
+			"EQUIPMENTS" => "EQPT",
+			"AND" => "&"
+		];
+
+		// Replace words with abbreviations
+		$words = explode(" ", $name);
+		foreach ($words as &$word) {
+			$upperWord = strtoupper($word);
+			if (isset($abbreviations[$upperWord])) {
+				$word = $abbreviations[$upperWord];
+			}
+		}
+		$shortenedName = implode(" ", $words);
+
+		// Trim if still longer than maxLength
+		return (strlen($shortenedName) > $maxLength) ? substr($shortenedName, 0, $maxLength) : $shortenedName;
 	}
 
 
